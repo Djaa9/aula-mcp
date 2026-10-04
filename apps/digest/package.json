@@ -1,0 +1,15 @@
+{
+  "name": "@aula-mcp/digest",
+  "private": true,
+  "description": "Daily Aula email digest: fetches via the MCP tools in-process, summarises with Claude, sends with Resend.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/run.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@aula-mcp/mcp-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}

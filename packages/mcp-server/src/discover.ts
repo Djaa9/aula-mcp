@@ -79,7 +79,7 @@ export interface DiscoverManifest {
  * Aula widget IDs map to which third-party provider serves which capability.
  * Source: scaarup/aula client.py + the helmstedt API blog posts.
  */
-const WIDGET_PROVIDER_MAP: Readonly<
+export const WIDGET_PROVIDER_MAP: Readonly<
   Record<string, { capability: string; provider: string; tool: string }>
 > = Object.freeze({
   '0001': { capability: 'ugeplan', provider: 'easyiq', tool: 'aula.ugeplan.easyiq' },
