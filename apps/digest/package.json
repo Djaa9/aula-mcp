@@ -1,7 +1,7 @@
 {
   "name": "@aula-mcp/digest",
   "private": true,
-  "description": "Daily Aula email digest: fetches via the MCP tools in-process, summarises with Claude, sends with Resend.",
+  "description": "Daily Aula email digest: fetches via the MCP tools in-process, summarises with Claude, sends over Proton SMTP.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@aula-mcp/mcp-server": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "nodemailer": "^10.0.13"
   }
 }
