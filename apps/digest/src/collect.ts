@@ -17,6 +17,11 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const MAX_THREAD_PAGES = 5;
+/**
+ * The school announces trips and deadlines in messages, often days or weeks
+ * ahead, so the model needs older messages too to see what falls today.
+ */
+export const LOOKBACK_DAYS = 30;
 
 interface ThreadSummary {
   id: number;
@@ -54,16 +59,24 @@ export interface CollectedMessage {
   threadId: number;
   subject: string;
   sensitive?: true;
-  messages: Array<{ from?: string; sentAt?: string; text: string; attachments?: string[] }>;
+  messages: Array<{
+    from?: string;
+    sentAt?: string;
+    isNew: boolean;
+    text: string;
+    attachments?: string[];
+  }>;
 }
 
 export interface DigestData {
   generatedAt: string;
   since: string;
+  /** Messages and posts go back to here; `isNew` marks those after `since`. */
+  windowStart: string;
   children: DiscoverManifest['children'];
   events: CalendarEvent[];
   messages: CollectedMessage[];
-  posts: Post[];
+  posts: Array<Post & { isNew: boolean }>;
   /** Keyed by tool name; value is the tool's JSON, or `{ error }` if that vendor failed. */
   schoolwork: Record<string, unknown>;
 }
@@ -108,10 +121,21 @@ export function schoolworkTools(detectedWidgets: string[]): string[] {
   const tools = detectedWidgets
     .map((id) => WIDGET_PROVIDER_MAP[id]?.tool)
     .filter((t): t is string => t !== undefined);
+  // MU serves the opgaveliste to schools that don't enable widget 0030 in Aula
+  // (verified 2026-10-05), so a school with MU ugebrev gets it too.
+  if (detectedWidgets.includes('0029')) tools.push('aula.opgaver.minuddannelse');
   return [...new Set(tools)];
 }
 
-async function collectMessages(client: Client, since: Date): Promise<CollectedMessage[]> {
+function lastSent(t: ThreadSummary): string | undefined {
+  return t.latestMessage?.sendDateTime ?? t.lastMessage?.sendDateTime;
+}
+
+async function collectMessages(
+  client: Client,
+  since: Date,
+  windowStart: Date,
+): Promise<CollectedMessage[]> {
   const fresh: ThreadSummary[] = [];
   for (let page = 0; page < MAX_THREAD_PAGES; page++) {
     const res = await callTool<{ threads: ThreadSummary[]; hasMorePages: boolean }>(
@@ -119,9 +143,7 @@ async function collectMessages(client: Client, since: Date): Promise<CollectedMe
       'aula.messages.list_threads',
       { page },
     );
-    const updated = res.threads.filter((t) =>
-      isAfter(t.latestMessage?.sendDateTime ?? t.lastMessage?.sendDateTime, since),
-    );
+    const updated = res.threads.filter((t) => isAfter(lastSent(t), windowStart));
     fresh.push(...updated);
     // Threads come newest first, so a page with stale threads means we're done.
     if (updated.length < res.threads.length || !res.hasMorePages) break;
@@ -136,11 +158,13 @@ async function collectMessages(client: Client, since: Date): Promise<CollectedMe
     );
     const subject = res.subject ?? thread.subject ?? '(uden emne)';
     if (res.error === 'step_up_required') {
-      out.push({ threadId: thread.id, subject, sensitive: true, messages: [] });
+      // Only the subject is visible, so an old one tells the reader nothing new.
+      if (isAfter(lastSent(thread), since))
+        out.push({ threadId: thread.id, subject, sensitive: true, messages: [] });
       continue;
     }
     const messages = (res.messages ?? [])
-      .filter((m) => isAfter(m.sendDateTime, since))
+      .filter((m) => isAfter(m.sendDateTime, windowStart))
       .map((m) => {
         const attachments = (m.attachments ?? [])
           .map((a) => a.file?.name)
@@ -148,6 +172,7 @@ async function collectMessages(client: Client, since: Date): Promise<CollectedMe
         return {
           ...(m.sender?.fullName ? { from: m.sender.fullName } : {}),
           ...(m.sendDateTime ? { sentAt: m.sendDateTime } : {}),
+          isNew: isAfter(m.sendDateTime, since),
           text: m.text?.plain ?? htmlToText(m.text?.html ?? ''),
           ...(attachments.length ? { attachments } : {}),
         };
@@ -159,6 +184,7 @@ async function collectMessages(client: Client, since: Date): Promise<CollectedMe
 
 export async function collect(client: Client, since: Date, now: Date): Promise<DigestData> {
   const manifest = await callTool<DiscoverManifest>(client, 'aula.discover');
+  const windowStart = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
   const children = manifest.children;
   const childIds = children.map((c) => c.id);
   const institutionCodes = [
@@ -174,8 +200,8 @@ export async function collect(client: Client, since: Date, now: Date): Promise<D
       profileIds: childIds,
       range: 'next_week',
     }),
-    collectMessages(client, since),
-    callTool<{ posts: Post[] }>(client, 'aula.posts.list', { limit: 20 }),
+    collectMessages(client, since, windowStart),
+    callTool<{ posts: Post[] }>(client, 'aula.posts.list', { limit: 50 }),
     Promise.all(
       schoolworkTools(manifest.detectedWidgets).map(async (tool) => {
         try {
@@ -191,10 +217,13 @@ export async function collect(client: Client, since: Date, now: Date): Promise<D
   return {
     generatedAt: now.toISOString(),
     since: since.toISOString(),
+    windowStart: windowStart.toISOString(),
     children,
     events: upcomingEvents([...thisWeek, ...nextWeek], now),
     messages,
-    posts: posts.posts.filter((p) => isAfter(p.date, since)),
+    posts: posts.posts
+      .filter((p) => isAfter(p.date, windowStart))
+      .map((p) => ({ ...p, isNew: isAfter(p.date, since) })),
     schoolwork: Object.fromEntries(schoolworkEntries),
   };
 }

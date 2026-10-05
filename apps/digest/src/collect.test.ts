@@ -45,4 +45,11 @@ describe('schoolworkTools', () => {
       'aula.opgaver.minuddannelse',
     ]);
   });
+
+  test('adds MU opgaver when only the ugebrev widget is detected', () => {
+    expect(schoolworkTools(['0029', '0023', '0072'])).toEqual([
+      'aula.ugebrev.minuddannelse',
+      'aula.opgaver.minuddannelse',
+    ]);
+  });
 });

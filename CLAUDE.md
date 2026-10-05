@@ -17,8 +17,9 @@ digest so syncing stays cheap.
    `registerTools` + `InMemoryTransport`) rather than calling AulaClient, so
    vendor detection and guardian-profile priming stay in `tools.ts`. Fetches:
    discover, calendar this + next week (non-lesson events only), message
-   threads updated since `lastRunAt`, posts, and the vendor tools for the
-   widgets the school has (`WIDGET_PROVIDER_MAP`).
+   threads and posts from the last 30 days (`isNew` marks those since
+   `lastRunAt`), and the vendor tools for the widgets the school has
+   (`WIDGET_PROVIDER_MAP`, plus MU opgaver whenever 0029 is present).
 3. `compose.ts`: one Claude call (`claude-opus-5-5`, effort medium,
    server-side fallback on, `DIGEST_MODEL` overrides) writes a Danish HTML
    fragment.
@@ -74,15 +75,17 @@ chain. A later local `pnpm aula login` is a separate session and is fine.
   (library), 0072 (MU absence). Ugenoter returns `personer: []` for every week
   tried (W39-W42); unknown whether the school writes none or the integration
   fails for this school.
-- Next step under discussion: homework. MU Opgaver (widget 0030) is not
-  enabled in Aula for this school, so the digest never calls
-  `aula.opgaver.minuddannelse`. Plan: log in locally and probe opgaver and
-  ugebrev directly before changing the digest.
+- MU Opgaver (widget 0030) is not enabled in Aula for this school, but the
+  opgaveliste endpoint answers anyway (verified 2026-10-05), so the digest
+  calls it alongside ugebrev.
 - Cleanup: unused `SMTP_USER` / `SMTP_TOKEN` may still be on the Railway
   service; the Proton SMTP token should be revoked.
 
 ## Decisions and why
 
+- 30-day message lookback: the school rarely uses the calendar and
+  announces trips in messages days or weeks ahead (a 5.B trip on 10-05 was
+  sent 09-30 and missed by the since-last-run window).
 - Script, not an agent loop: a fixed-shape digest gains nothing from letting
   the model pick tools each morning, and costs more.
 - Resend, not SMTP: Railway Hobby blocks outbound SMTP (465/587). Proton SMTP
