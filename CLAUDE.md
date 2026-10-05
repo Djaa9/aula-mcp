@@ -43,7 +43,8 @@ from `@aula-mcp/mcp-server` for the digest.
 - Volume `digest-volume` at `/data` (`AULA_MCP_DIR`).
 - Variables: `AULA_MCP_KEY`, `AULA_TOKENS_SEED`, `ANTHROPIC_API_KEY`,
   `RESEND_API_KEY`, `DIGEST_FROM=Aula <aula@thepage.dk>`,
-  `DIGEST_TO=jp@thepage.dk`.
+  `DIGEST_TO=jp@thepage.dk,karend@vidsen.com` (comma-separated; failure
+  emails go to all recipients too, on purpose).
 - Email: Resend, domain thepage.dk (EU region), DNS at one.com. The domain's
   normal mail is Proton (MX/SPF on the apex, DMARC p=quarantine); Resend's
   records live on `send` and `resend._domainkey` only.
