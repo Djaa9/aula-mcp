@@ -19,9 +19,10 @@ digest so syncing stays cheap.
 3. `collect.ts` drives the existing MCP tools in-process (McpServer +
    `registerTools` + `InMemoryTransport`) rather than calling AulaClient, so
    vendor detection and guardian-profile priming stay in `tools.ts`. Fetches:
-   calendar events from step 2 (non-lesson only), message
-   threads updated since `lastRunAt`, posts, and the vendor tools for the
-   widgets the school has (`WIDGET_PROVIDER_MAP`).
+   calendar events from step 2 (non-lesson only), message threads and posts
+   from the last 30 days (`isNew` marks those since `lastRunAt`), and the
+   vendor tools for the widgets the school has (`WIDGET_PROVIDER_MAP`, plus
+   MU opgaver whenever 0029 is present).
    Then `school-day.ts` `judgeSchoolDays`: a small Claude call (effort low,
    structured output) decides whether today/tomorrow are school days from
    the Danish school year, lessons per day, events, posts and messages. The
@@ -51,7 +52,8 @@ from `@aula-mcp/mcp-server` for the digest.
 - Volume `digest-volume` at `/data` (`AULA_MCP_DIR`).
 - Variables: `AULA_MCP_KEY`, `AULA_TOKENS_SEED`, `ANTHROPIC_API_KEY`,
   `RESEND_API_KEY`, `DIGEST_FROM=Aula <aula@thepage.dk>`,
-  `DIGEST_TO=jp@thepage.dk`.
+  `DIGEST_TO=jp@thepage.dk,karend@vidsen.com` (comma-separated; failure
+  emails go to all recipients too, on purpose).
 - Email: Resend, domain thepage.dk (EU region), DNS at one.com. The domain's
   normal mail is Proton (MX/SPF on the apex, DMARC p=quarantine); Resend's
   records live on `send` and `resend._domainkey` only.
@@ -83,15 +85,17 @@ chain. A later local `pnpm aula login` is a separate session and is fine.
   (library), 0072 (MU absence). Ugenoter returns `personer: []` for every week
   tried (W39-W42); unknown whether the school writes none or the integration
   fails for this school.
-- Next step under discussion: homework. MU Opgaver (widget 0030) is not
-  enabled in Aula for this school, so the digest never calls
-  `aula.opgaver.minuddannelse`. Plan: log in locally and probe opgaver and
-  ugebrev directly before changing the digest.
+- MU Opgaver (widget 0030) is not enabled in Aula for this school, but the
+  opgaveliste endpoint answers anyway (verified 2026-10-05), so the digest
+  calls it alongside ugebrev.
 - Cleanup: unused `SMTP_USER` / `SMTP_TOKEN` may still be on the Railway
   service; the Proton SMTP token should be revoked.
 
 ## Decisions and why
 
+- 30-day message lookback: the school rarely uses the calendar and
+  announces trips in messages days or weeks ahead (a 5.B trip on 10-05 was
+  sent 09-30 and missed by the since-last-run window).
 - Script, not an agent loop: a fixed-shape digest gains nothing from letting
   the model pick tools each morning, and costs more.
 - Resend, not SMTP: Railway Hobby blocks outbound SMTP (465/587). Proton SMTP
