@@ -182,8 +182,29 @@ async function collectMessages(
   return out;
 }
 
-export async function collect(client: Client, since: Date, now: Date): Promise<DigestData> {
+/** Discover plus calendar for this and next week: enough to decide whether to run. */
+export interface CalendarSnapshot {
+  manifest: DiscoverManifest;
+  /** Every event this week and next, lessons included. */
+  events: CalendarEvent[];
+}
+
+export async function collectCalendar(client: Client): Promise<CalendarSnapshot> {
   const manifest = await callTool<DiscoverManifest>(client, 'aula.discover');
+  const profileIds = manifest.children.map((c) => c.id);
+  const [thisWeek, nextWeek] = await Promise.all([
+    callTool<CalendarEvent[]>(client, 'aula.calendar.events', { profileIds, range: 'this_week' }),
+    callTool<CalendarEvent[]>(client, 'aula.calendar.events', { profileIds, range: 'next_week' }),
+  ]);
+  return { manifest, events: [...thisWeek, ...nextWeek] };
+}
+
+export async function collect(
+  client: Client,
+  { manifest, events }: CalendarSnapshot,
+  since: Date,
+  now: Date,
+): Promise<DigestData> {
   const windowStart = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
   const children = manifest.children;
   const childIds = children.map((c) => c.id);
@@ -191,15 +212,7 @@ export async function collect(client: Client, since: Date, now: Date): Promise<D
     ...new Set(children.map((c) => c.institution?.code).filter((c): c is string => !!c)),
   ];
 
-  const [thisWeek, nextWeek, messages, posts, schoolworkEntries] = await Promise.all([
-    callTool<CalendarEvent[]>(client, 'aula.calendar.events', {
-      profileIds: childIds,
-      range: 'this_week',
-    }),
-    callTool<CalendarEvent[]>(client, 'aula.calendar.events', {
-      profileIds: childIds,
-      range: 'next_week',
-    }),
+  const [messages, posts, schoolworkEntries] = await Promise.all([
     collectMessages(client, since, windowStart),
     callTool<{ posts: Post[] }>(client, 'aula.posts.list', { limit: 50 }),
     Promise.all(
@@ -219,7 +232,7 @@ export async function collect(client: Client, since: Date, now: Date): Promise<D
     since: since.toISOString(),
     windowStart: windowStart.toISOString(),
     children,
-    events: upcomingEvents([...thisWeek, ...nextWeek], now),
+    events: upcomingEvents(events, now),
     messages,
     posts: posts.posts
       .filter((p) => isAfter(p.date, windowStart))
