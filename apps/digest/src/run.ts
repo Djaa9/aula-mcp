@@ -5,9 +5,10 @@
  * DIGEST_DRY_RUN=1 writes the HTML to a temp file instead of sending, and
  * leaves lastRunAt untouched so the next run still sees the same messages.
  *
- * Runs with no school today or tomorrow (weekends, holidays) send nothing and
- * leave lastRunAt alone, so the next digest covers the gap. DIGEST_FORCE=1
- * sends anyway.
+ * Runs with no school today or tomorrow send nothing and leave lastRunAt
+ * alone, so the next digest covers the gap. Saturdays are skipped before any
+ * fetching; on other days Claude judges holidays from the collected data. If
+ * that check fails, the digest is sent. DIGEST_FORCE=1 sends anyway.
  */
 
 import { writeFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ import { join } from 'node:path';
 import { AulaContext } from '@aula-mcp/mcp-server';
 import { collect, collectCalendar, connectInProcess } from './collect.ts';
 import { composeDigest } from './compose.ts';
-import { hasSchoolTodayOrTomorrow } from './school-day.ts';
+import { copenhagenDay, isWeekend, judgeSchoolDays, nextDay } from './school-day.ts';
 import { sendEmail } from './send.ts';
 import { configDir, readLastRunAt, seedTokens, writeLastRunAt } from './state.ts';
 
@@ -33,15 +34,31 @@ async function main(): Promise<void> {
   const context = new AulaContext();
   try {
     const client = await connectInProcess(context);
+    // Fetched even on Saturdays so token refresh keeps running and login failures email.
     const calendar = await collectCalendar(client);
-    if (!force && !hasSchoolTodayOrTomorrow(calendar.events, now)) {
-      console.error('No school today or tomorrow: skipping digest');
+    const today = copenhagenDay(now) as string;
+    if (!force && isWeekend(today) && isWeekend(nextDay(today))) {
+      console.error('Weekend: skipping digest');
       return;
     }
     const data = await collect(client, calendar, since, now);
     console.error(
       `Collected ${data.messages.length} threads, ${data.posts.length} posts, ${data.events.length} events since ${data.since}`,
     );
+    if (!force) {
+      try {
+        const verdict = await judgeSchoolDays(data, calendar.events, now);
+        console.error(
+          `School today: ${verdict.schoolToday}, tomorrow: ${verdict.schoolTomorrow} (${verdict.reason})`,
+        );
+        if (!verdict.schoolToday && !verdict.schoolTomorrow) {
+          console.error('No school today or tomorrow: skipping digest');
+          return;
+        }
+      } catch (e) {
+        console.error(`School-day check failed, sending anyway: ${e}`);
+      }
+    }
     const digest = await composeDigest(data, now);
 
     if (dryRun) {
