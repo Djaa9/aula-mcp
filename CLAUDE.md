@@ -13,17 +13,24 @@ digest so syncing stays cheap.
    (base64 of an encrypted `aula tokens export`), once per distinct seed,
    tracked by `seed.sha256`. Never re-apply an old seed: the volume holds the
    rotated refresh token.
-2. `collect.ts` drives the existing MCP tools in-process (McpServer +
+2. `collectCalendar` fetches discover + calendar this/next week, and
+   `school-day.ts` skips the run (no email, `lastRunAt` untouched) unless
+   today or tomorrow is a school day. Weekends never are; a weekday is when
+   its week has lessons and it has one, or, in a week with no lessons at all,
+   when no `holiday`/`presence_holiday` event covers it. `DIGEST_FORCE=1`
+   sends anyway. Skipped runs still refresh the token, and failures still
+   email.
+3. `collect.ts` drives the existing MCP tools in-process (McpServer +
    `registerTools` + `InMemoryTransport`) rather than calling AulaClient, so
    vendor detection and guardian-profile priming stay in `tools.ts`. Fetches:
-   discover, calendar this + next week (non-lesson events only), message
+   calendar events from step 2 (non-lesson only), message
    threads updated since `lastRunAt`, posts, and the vendor tools for the
    widgets the school has (`WIDGET_PROVIDER_MAP`).
-3. `compose.ts`: one Claude call (`claude-opus-5-5`, effort medium,
+4. `compose.ts`: one Claude call (`claude-opus-5-5`, effort medium,
    server-side fallback on, `DIGEST_MODEL` overrides) writes a Danish HTML
    fragment.
-4. `send.ts`: Resend HTTPS API. Then `lastRunAt` goes to `digest-state.json`.
-5. Any failure sends an "Aula-digest fejlede" email and exits 1.
+5. `send.ts`: Resend HTTPS API. Then `lastRunAt` goes to `digest-state.json`.
+6. Any failure sends an "Aula-digest fejlede" email and exits 1.
 
 `DIGEST_DRY_RUN=1` writes the HTML to `$TEMP/aula-digest.html` instead of
 sending and leaves `lastRunAt` alone.

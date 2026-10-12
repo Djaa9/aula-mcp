@@ -4,18 +4,24 @@
  *
  * DIGEST_DRY_RUN=1 writes the HTML to a temp file instead of sending, and
  * leaves lastRunAt untouched so the next run still sees the same messages.
+ *
+ * Runs with no school today or tomorrow (weekends, holidays) send nothing and
+ * leave lastRunAt alone, so the next digest covers the gap. DIGEST_FORCE=1
+ * sends anyway.
  */
 
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AulaContext } from '@aula-mcp/mcp-server';
-import { collect, connectInProcess } from './collect.ts';
+import { collect, collectCalendar, connectInProcess } from './collect.ts';
 import { composeDigest } from './compose.ts';
+import { hasSchoolTodayOrTomorrow } from './school-day.ts';
 import { sendEmail } from './send.ts';
 import { configDir, readLastRunAt, seedTokens, writeLastRunAt } from './state.ts';
 
 const dryRun = process.env.DIGEST_DRY_RUN === '1';
+const force = process.env.DIGEST_FORCE === '1';
 
 async function main(): Promise<void> {
   const dir = configDir();
@@ -27,7 +33,12 @@ async function main(): Promise<void> {
   const context = new AulaContext();
   try {
     const client = await connectInProcess(context);
-    const data = await collect(client, since, now);
+    const calendar = await collectCalendar(client);
+    if (!force && !hasSchoolTodayOrTomorrow(calendar.events, now)) {
+      console.error('No school today or tomorrow: skipping digest');
+      return;
+    }
+    const data = await collect(client, calendar, since, now);
     console.error(
       `Collected ${data.messages.length} threads, ${data.posts.length} posts, ${data.events.length} events since ${data.since}`,
     );
